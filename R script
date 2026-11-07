@@ -1,0 +1,187 @@
+# Sex-chromosome dosage analysis from whole-genome DNA read depth
+# Species: Anas platyrhynchos (Pekin duck)
+# Sample: Male
+# Input files:
+#   chromosome_coverage.tsv
+#   chromosome_groups.csv
+
+# 1. Check if the input files exist
+if (!file.exists("chromosome_coverage.tsv")) {
+  stop("chromosome_coverage.tsv is missing from the working folder.")
+}
+
+if (!file.exists("chromosome_groups.csv")) {
+  stop("chromosome_groups.csv is missing from the working folder.")
+}
+
+# 2. Import Samtools coverage data
+cov <- read.delim(
+  "chromosome_coverage.tsv",
+  comment.char = "",
+  check.names = FALSE,
+  stringsAsFactors = FALSE
+)
+
+# Rename the first column to rname
+names(cov)[1] <- "rname"
+
+# Check required coverage column
+if (!"meandepth" %in% names(cov)) {
+  stop("Missing meandepth column in chromosome_coverage.tsv")
+}
+
+# 3. Import chromosome group labels
+key <- read.csv(
+  "chromosome_groups.csv",
+  stringsAsFactors = FALSE
+)
+
+# Check required columns
+if (!all(c("rname", "group") %in% names(key))) {
+  stop("chromosome_groups.csv must contain rname and group columns.")
+}
+
+# Clean chromosome names and labels
+key$rname <- trimws(key$rname)
+key$group <- toupper(trimws(key$group))
+
+# Check for repeated chromosome names
+if (anyDuplicated(key$rname)) {
+  stop("Repeated chromosome names found in chromosome_groups.csv")
+}
+
+# Allow only valid chromosome groups
+if (!all(key$group %in% c("A", "X", "Y", "Z", "W"))) {
+  stop("Use only A, X, Y, Z, or W in the group column.")
+}
+
+# 4. Match chromosome labels with coverage results
+cov$rname <- trimws(cov$rname)
+
+x <- merge(
+  key,
+  cov[, c("rname", "meandepth")],
+  by = "rname",
+  all.x = TRUE,
+  sort = FALSE
+)
+
+# Convert mean depth to numeric
+x$meandepth <- suppressWarnings(as.numeric(x$meandepth))
+
+# Check if all chromosome names matched
+if (anyNA(x$meandepth)) {
+  stop("Some chromosome names did not match. Check the rname values.")
+}
+
+# Check for invalid depth values
+if (any(!is.finite(x$meandepth)) || any(x$meandepth < 0)) {
+  stop("Invalid or negative coverage depth detected.")
+}
+
+# 5. Check chromosome labels
+if (sum(x$group == "A") < 5) {
+  stop("At least five autosomes must be labeled A.")
+}
+
+if ("X" %in% x$group && "Z" %in% x$group) {
+  stop("Choose either an XY or a ZW species, not both.")
+}
+
+# Identify the sex chromosome
+if (sum(x$group == "Z") == 1 && !any(x$group == "X")) {
+  target <- "Z"
+  one_copy <- "ZW-like"
+  two_copies <- "ZZ-like"
+} else if (sum(x$group == "X") == 1 && !any(x$group == "Z")) {
+  target <- "X"
+  one_copy <- "XY-like"
+  two_copies <- "XX-like"
+} else {
+  stop("Label exactly one X or exactly one Z chromosome.")
+}
+
+# 6. Calculate median autosomal coverage
+A <- median(x$meandepth[x$group == "A"])
+
+if (!is.finite(A) || A <= 0) {
+  stop("No usable autosomal coverage was found.")
+}
+
+# Calculate relative depth
+x$relative_depth <- x$meandepth / A
+
+# Get the sex chromosome relative depth
+ratio <- x$relative_depth[x$group == target][1]
+
+# 7. Interpret chromosome dosage
+call <- if (ratio >= 0.80) {
+  two_copies
+} else if (ratio <= 0.65) {
+  one_copy
+} else {
+  "Ambiguous"
+}
+
+# Check for very low coverage
+if (A < 1) {
+  call <- "Inconclusive: very low autosomal depth"
+}
+
+# Check for optional W chromosome evidence
+partner <- if (target == "X") "Y" else "W"
+
+partner_ratio <- if (partner %in% x$group) {
+  x$relative_depth[x$group == partner][1]
+} else {
+  NA_real_
+}
+
+# 8. Create results folder
+dir.create("results", showWarnings = FALSE)
+
+# Export chromosome relative-depth table
+write.csv(
+  x,
+  "results/chromosome_relative_depth.csv",
+  row.names = FALSE
+)
+
+# 9. Create chromosome depth graph
+png(
+  "results/chromosome_depth.png",
+  width = 1000,
+  height = 580
+)
+
+par(mar = c(8, 4, 3, 1))
+
+barplot(
+  x$relative_depth,
+  names.arg = x$rname,
+  las = 2,
+  ylab = "Depth relative to median autosome",
+  main = "Autosomal and Sex-Chromosome Depth",
+  cex.names = 0.75
+)
+
+abline(h = c(0.5, 1.0), lty = 2)
+
+dev.off()
+
+# 10. Generate analysis summary
+summary <- c(
+  paste("Species: Anas platyrhynchos"),
+  paste("Sample sex reported in assembly metadata: Male"),
+  paste("Median autosome depth:", round(A, 3)),
+  paste(target, "/ A ratio:", round(ratio, 3)),
+  paste(partner, "/ A ratio:", round(partner_ratio, 3)),
+  paste("Dosage interpretation:", call),
+  "Compare the result with the reported sample sex and discuss limitations."
+)
+
+# Save summary as a text file
+writeLines(summary, "results/sex_inference.txt")
+
+# Display summary in RStudio
+cat(paste(summary, collapse = "\n"), "\n")
