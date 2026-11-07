@@ -1,0 +1,7 @@
+Species: Anas platyrhynchos
+Sample sex reported in assembly metadata: Male
+Median autosome depth: 58.256
+Z / A ratio: 0.976
+W / A ratio: NA
+Dosage interpretation: ZZ-like
+Compare the result with the reported sample sex and discuss limitations.
