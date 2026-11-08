@@ -64,4 +64,7 @@ Finally, I prepared the two files needed for the R analysis: chromosome_coverage
 
 I placed both files in the same folder as my R script so that R could read the data and calculate the relative sequencing depth of the Z chromosome compared with the autosomes.
 
+# Galaxy workflow link
+
+https://usegalaxy.org/u/faith_emperado/h/sex-dosage-anas-platyrhynchos-1
 
